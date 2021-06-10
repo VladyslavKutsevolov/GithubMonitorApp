@@ -1,3 +1,3 @@
 # GithubMonitorApp
 
-testing http hook azure function!
+testing durable azure function!
