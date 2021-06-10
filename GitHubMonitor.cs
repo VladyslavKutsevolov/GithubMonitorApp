@@ -1,196 +1,66 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Azure.WebJobs.Host;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-
-namespace GithubMonitor
-{
-    public static class GitHubMonitor
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Net.Http;
+    using System.Threading.Tasks;
+    using Microsoft.Azure.WebJobs;
+    using Microsoft.Azure.WebJobs.Extensions.DurableTask;
+    using Microsoft.Azure.WebJobs.Extensions.Http;
+    using Microsoft.Azure.WebJobs.Host;
+    using Microsoft.Extensions.Logging;
+    using Newtonsoft.Json;
+    
+    namespace GithubMonitor
     {
-        [FunctionName("GitHubMonitor")]
-        public static async Task<IActionResult> RunAsync(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)]
-            HttpRequest req, ILogger log)
+        public static class GithubMonitor
         {
-            log.LogInformation("GitHub Monitor processed an action...");
-
-            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            var data = JsonConvert.DeserializeObject<Root>(requestBody);
+            [FunctionName("ProcessGithubResponse")]
+            public static async Task RunOrchestrator(
+                [OrchestrationTrigger] IDurableOrchestrationContext context)
+            {
+                var githubCommits = context.GetInput<dynamic>();
+                await context.CallActivityAsync<string>("PostToSlack", githubCommits);
+                
+            }
             
-            log.LogInformation(requestBody);
-
-            return new OkResult();
-
+            [FunctionName("PostToSlack")]
+            public static async Task<string> PostToSlack([ActivityTrigger] IDurableActivityContext context, ILogger log)
+            {
+                var data = context.GetInput<dynamic>();
+                
+    
+                using (var client = new HttpClient())
+                {
+                    var body = new StringContent($"'text': '{data.commits[0].author.name} pushed to {data.repository.name} and changed {data.commits[0].modified[0]} with message: {data.commits[0].message}'");
+                    log.LogInformation($"body: {body.ReadAsStringAsync().Result}");
+                    var response =
+                        await client.PostAsync(
+                            "https://hooks.slack.com/services/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", body);
+    
+                    var result = await response.Content.ReadAsStringAsync();
+                    
+                    log.LogInformation($"result: {result}");
+    
+                    return result;
+                }
+                
+    
+            }
+    
+                [FunctionName("GitHubMonitor")]
+                public static async Task<HttpResponseMessage> HttpStart(
+                    [HttpTrigger(AuthorizationLevel.Anonymous, "post")]
+                    HttpRequestMessage req,
+                    [DurableClient] IDurableOrchestrationClient starter,
+                    ILogger log)
+                {
+                    // Function input comes from the request content.
+                    dynamic data = await req.Content.ReadAsAsync<dynamic>();
+                    string instanceId = await starter.StartNewAsync("ProcessGithubResponse", null, data);
+    
+                    log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+    
+                    return starter.CreateCheckStatusResponse(req, instanceId);
+                }
         }
     }
-}
-
-
-// Root myDeserializedClass = JsonConvert.DeserializeObject<Root>(myJsonResponse); 
-    public class Config
-    {
-        public string content_type { get; set; }
-        public string insecure_ssl { get; set; }
-        public string url { get; set; }
-    }
-
-    public class LastResponse
-    {
-        public object code { get; set; }
-        public string status { get; set; }
-        public object message { get; set; }
-    }
-
-    public class Hook
-    {
-        public string type { get; set; }
-        public int id { get; set; }
-        public string name { get; set; }
-        public bool active { get; set; }
-        public List<string> events { get; set; }
-        public Config config { get; set; }
-        public DateTime updated_at { get; set; }
-        public DateTime created_at { get; set; }
-        public string url { get; set; }
-        public string test_url { get; set; }
-        public string ping_url { get; set; }
-        public LastResponse last_response { get; set; }
-    }
-
-    public class Owner
-    {
-        public string login { get; set; }
-        public int id { get; set; }
-        public string node_id { get; set; }
-        public string avatar_url { get; set; }
-        public string gravatar_id { get; set; }
-        public string url { get; set; }
-        public string html_url { get; set; }
-        public string followers_url { get; set; }
-        public string following_url { get; set; }
-        public string gists_url { get; set; }
-        public string starred_url { get; set; }
-        public string subscriptions_url { get; set; }
-        public string organizations_url { get; set; }
-        public string repos_url { get; set; }
-        public string events_url { get; set; }
-        public string received_events_url { get; set; }
-        public string type { get; set; }
-        public bool site_admin { get; set; }
-    }
-
-    public class Repository
-    {
-        public int id { get; set; }
-        public string node_id { get; set; }
-        public string name { get; set; }
-        public string full_name { get; set; }
-        public bool @private { get; set; }
-        public Owner owner { get; set; }
-        public string html_url { get; set; }
-        public object description { get; set; }
-        public bool fork { get; set; }
-        public string url { get; set; }
-        public string forks_url { get; set; }
-        public string keys_url { get; set; }
-        public string collaborators_url { get; set; }
-        public string teams_url { get; set; }
-        public string hooks_url { get; set; }
-        public string issue_events_url { get; set; }
-        public string events_url { get; set; }
-        public string assignees_url { get; set; }
-        public string branches_url { get; set; }
-        public string tags_url { get; set; }
-        public string blobs_url { get; set; }
-        public string git_tags_url { get; set; }
-        public string git_refs_url { get; set; }
-        public string trees_url { get; set; }
-        public string statuses_url { get; set; }
-        public string languages_url { get; set; }
-        public string stargazers_url { get; set; }
-        public string contributors_url { get; set; }
-        public string subscribers_url { get; set; }
-        public string subscription_url { get; set; }
-        public string commits_url { get; set; }
-        public string git_commits_url { get; set; }
-        public string comments_url { get; set; }
-        public string issue_comment_url { get; set; }
-        public string contents_url { get; set; }
-        public string compare_url { get; set; }
-        public string merges_url { get; set; }
-        public string archive_url { get; set; }
-        public string downloads_url { get; set; }
-        public string issues_url { get; set; }
-        public string pulls_url { get; set; }
-        public string milestones_url { get; set; }
-        public string notifications_url { get; set; }
-        public string labels_url { get; set; }
-        public string releases_url { get; set; }
-        public string deployments_url { get; set; }
-        public DateTime created_at { get; set; }
-        public DateTime updated_at { get; set; }
-        public DateTime pushed_at { get; set; }
-        public string git_url { get; set; }
-        public string ssh_url { get; set; }
-        public string clone_url { get; set; }
-        public string svn_url { get; set; }
-        public object homepage { get; set; }
-        public int size { get; set; }
-        public int stargazers_count { get; set; }
-        public int watchers_count { get; set; }
-        public object language { get; set; }
-        public bool has_issues { get; set; }
-        public bool has_projects { get; set; }
-        public bool has_downloads { get; set; }
-        public bool has_wiki { get; set; }
-        public bool has_pages { get; set; }
-        public int forks_count { get; set; }
-        public object mirror_url { get; set; }
-        public bool archived { get; set; }
-        public bool disabled { get; set; }
-        public int open_issues_count { get; set; }
-        public object license { get; set; }
-        public int forks { get; set; }
-        public int open_issues { get; set; }
-        public int watchers { get; set; }
-        public string default_branch { get; set; }
-    }
-
-    public class Sender
-    {
-        public string login { get; set; }
-        public int id { get; set; }
-        public string node_id { get; set; }
-        public string avatar_url { get; set; }
-        public string gravatar_id { get; set; }
-        public string url { get; set; }
-        public string html_url { get; set; }
-        public string followers_url { get; set; }
-        public string following_url { get; set; }
-        public string gists_url { get; set; }
-        public string starred_url { get; set; }
-        public string subscriptions_url { get; set; }
-        public string organizations_url { get; set; }
-        public string repos_url { get; set; }
-        public string events_url { get; set; }
-        public string received_events_url { get; set; }
-        public string type { get; set; }
-        public bool site_admin { get; set; }
-    }
-
-    public class Root
-    {
-        public string zen { get; set; }
-        public int hook_id { get; set; }
-        public Hook hook { get; set; }
-        public Repository repository { get; set; }
-        public Sender sender { get; set; }
-    }
-
